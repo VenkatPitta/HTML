@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dataset Distribution</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .chart-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+            width: 95%;
+            max-width: 1000px;
+            aspect-ratio: 16/9;
+            position: relative;
+            margin: 20px auto;
+        }
+        .title {
+            font-size: 16px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .stats-container {
+            font-size: 12px;
+            line-height: 1.2;
+            margin-bottom: 5px;
+        }
+        .stats-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2px;
+        }
+        .stat-label {
+            font-weight: bold;
+        }
+        .fullscreen-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 1000;
+        }
+        .fullscreen-btn:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <button onclick="document.documentElement.requestFullscreen()" class="fullscreen-btn">
+        Fullscreen
+    </button>
+    
+    <div class="chart-container">
+        <div class="stats-container">
+            <div class="stats-row" style="justify-content: center; font-size: 14px; font-weight: bold; margin-bottom: 5px;">
+                <span id="selectedSet">Training Set - Total: 5871 images</span>
+            </div>
+            <div id="classStats" style="display: flex; justify-content: space-between; font-size: 11px;">
+                <div style="color: #1f77b4"><span class="stat-label">Corrosion:</span> 2206 (37.6%)</div>
+                <div style="color: #2ca02c"><span class="stat-label">Deposits:</span> 732 (12.5%)</div>
+                <div style="color: #ff7f0e"><span class="stat-label">Joint Separation:</span> 119 (2.0%)</div>
+                <div style="color: #d62728"><span class="stat-label">Normal Frames:</span> 2814 (47.9%)</div>
+            </div>
+        </div>
+        <canvas id="stackedChart"></canvas>
+    </div>
+
+    <script>
+        window.onload = function() {
+            const categories = {
+                'Corrosion': {
+                    color: '#1f77b4',
+                    data: [2206, 275, 277]
+                },
+                'Deposits': {
+                    color: '#2ca02c',
+                    data: [732, 152, 151]
+                },
+                'Joint Separation': {
+                    color: '#ff7f0e',
+                    data: [119, 14, 16]
+                },
+                'Normal Frames': {
+                    color: '#d62728',
+                    data: [2814, 351, 353]
+                }
+            };
+
+            const data = {
+                labels: ['Training Set', 'Validation Set', 'Test Set'],
+                datasets: Object.entries(categories).map(([label, info]) => ({
+                    label,
+                    data: info.data,
+                    backgroundColor: info.color,
+                    borderColor: info.color,
+                    borderWidth: 1
+                }))
+            };
+
+            function updateStatsDisplay(setIndex) {
+                let total = 0;
+                const classStatsHtml = Object.entries(categories).map(([label, info]) => {
+                    const value = info.data[setIndex];
+                    total += value;
+                    return { label, value, color: info.color };
+                });
+
+                // Update total count
+                document.getElementById('selectedSet').textContent = 
+                    `${data.labels[setIndex]} - Total: ${total} images`;
+
+                // Update class statistics
+                const classStatsContainer = document.getElementById('classStats');
+                classStatsContainer.innerHTML = classStatsHtml.map(({ label, value, color }) => {
+                    const percentage = ((value / total) * 100).toFixed(1);
+                    return `
+                        <div style="color: ${color}">
+                            <span class="stat-label">${label}:</span> ${value} (${percentage}%)
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            function getOrCreateTooltip(chart) {
+                let tooltipEl = chart.canvas.parentNode.querySelector('div.custom-tooltip');
+
+                if (!tooltipEl) {
+                    tooltipEl = document.createElement('div');
+                    tooltipEl.classList.add('custom-tooltip');
+                    tooltipEl.style.background = 'rgba(255, 255, 255, 0.95)';
+                    tooltipEl.style.borderRadius = '8px';
+                    tooltipEl.style.color = '#333';
+                    tooltipEl.style.opacity = 1;
+                    tooltipEl.style.pointerEvents = 'none';
+                    tooltipEl.style.position = 'absolute';
+                    tooltipEl.style.transform = 'translate(-50%, 0)';
+                    tooltipEl.style.transition = 'all .1s ease';
+                    tooltipEl.style.minWidth = '200px';
+                    tooltipEl.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                    tooltipEl.style.border = '1px solid #ddd';
+                    tooltipEl.style.padding = '10px';
+                    tooltipEl.style.fontSize = '12px';
+
+                    chart.canvas.parentNode.appendChild(tooltipEl);
+                }
+
+                return tooltipEl;
+            }
+
+            const externalTooltipHandler = (context) => {
+                const {chart, tooltip} = context;
+                const tooltipEl = getOrCreateTooltip(chart);
+
+                if (tooltip.opacity === 0) {
+                    tooltipEl.style.opacity = 0;
+                    return;
+                }
+
+                if (tooltip.body) {
+                    const titleLines = tooltip.title || [];
+                    const splitIndex = data.labels.indexOf(titleLines[0]);
+                    
+                    // Update both the tooltip and the stats display
+                    updateStatsDisplay(splitIndex);
+
+                    let total = 0;
+                    Object.values(categories).forEach(category => {
+                        total += category.data[splitIndex];
+                    });
+
+                    const innerHtml = `
+                        ${Object.entries(categories).map(([label, info]) => {
+                            const value = info.data[splitIndex];
+                            const percentage = ((value / total) * 100).toFixed(1);
+                            return `
+                                <div style="display: flex; justify-content: space-between; margin: 4px 0; color: ${info.color}">
+                                    <span style="margin-right: 12px;">${label}:</span>
+                                    <span style="font-weight: bold;">${value} (${percentage}%)</span>
+                                </div>`;
+                        }).join('')}
+                    `;
+
+                    tooltipEl.innerHTML = innerHtml;
+                }
+
+                const {offsetLeft: positionX, offsetTop: positionY} = chart.canvas;
+
+                tooltipEl.style.opacity = 1;
+                tooltipEl.style.left = positionX + tooltip.caretX + 'px';
+                tooltipEl.style.top = positionY + tooltip.caretY + 'px';
+            };
+
+            const config = {
+                type: 'bar',
+                data: data,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    layout: {
+                        padding: {
+                            top: 10,
+                            right: 20,
+                            bottom: 20,
+                            left: 10
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            enabled: false,
+                            position: 'nearest',
+                            external: externalTooltipHandler,
+                        },
+                        legend: {
+                            position: 'top',
+                            align: 'center',
+                            labels: {
+                                padding: 15,
+                                usePointStyle: true,
+                                pointStyle: 'rect',
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            grid: {
+                                display: false
+                            },
+                            title: {
+                                display: true,
+                                text: 'Dataset Splits',
+                                padding: {top: 10, bottom: 0},
+                                font: {
+                                    size: 12,
+                                    weight: 'bold'
+                                }
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            grid: {
+                                color: '#f0f0f0'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Number of Images',
+                                padding: {top: 0, bottom: 10},
+                                font: {
+                                    size: 12,
+                                    weight: 'bold'
+                                }
+                            },
+                            max: 6000,
+                            ticks: {
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+            const ctx = document.getElementById('stackedChart');
+            new Chart(ctx, config);
+        };
+    </script>
+</body>
+</html>
